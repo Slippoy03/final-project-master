@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState, useCallback } from "react";
 
 export const useMutation = () => {
   const [data, setData] = useState({
@@ -9,8 +9,8 @@ export const useMutation = () => {
 
   const mutate = useCallback(
     async ({
-      url = "", method = "POST", payload = {}, headers = {}
-    } = {}) => {
+      url, method = "POST", payload = {}, headers = {}
+    }) => {
       try {
         const response = await fetch(url, {
           method,
@@ -18,18 +18,17 @@ export const useMutation = () => {
             "Content-Type": "application/json",
             ...headers,
           },
-          ...(method !== "GET" && { body: JSON.stringify(payload) }),
+          body: JSON.stringify(payload),
         });
+
         const result = await response.json();
         setData({
-          ...data,
           data: result,
           isLoading: false,
         });
-        return { ...result };
+        return result;
       } catch (error) {
         setData({
-          ...data,
           isError: true,
           isLoading: false,
         });

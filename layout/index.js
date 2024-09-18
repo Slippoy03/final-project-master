@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { FaHeart } from "react-icons/fa";
 import Head from "next/head";
+import Link from "next/link";
 import {
   Container,
   Box,
@@ -15,8 +17,16 @@ import {
   Text,
   Input,
   IconButton,
+  useDisclosure,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalCloseButton,
+  ModalBody,
+  ModalFooter,
 } from "@chakra-ui/react";
-import { ChevronDownIcon, ChatIcon, EditIcon } from "@chakra-ui/icons";
+import { ChatIcon, EditIcon, DeleteIcon } from "@chakra-ui/icons";
 import { useRouter } from "next/router";
 import Cookies from "js-cookie";
 import { useMutation } from "@/hooks/useMutation";
@@ -43,12 +53,33 @@ export default function Layout({ children, metaTitle, metaDescription }) {
   });
 
   const [newPost, setNewPost] = useState("");
-  const { mutate: createPost } = useMutation();
+  const [replies, setReplies] = useState({}); // Object to store replies for each post
+  const [editDescription, setEditDescription] = useState(""); // State for editing description
+  const [selectedPostId, setSelectedPostId] = useState(null); // Track the post being edited
 
+  const { isOpen, onOpen, onClose } = useDisclosure(); // Modal control
+
+  const { mutate: createPost } = useMutation();
   const profileUser = userData?.data;
   const posts = postsData?.data;
 
-  const HandleLogout = async () => {
+  const handleNewPost = async () => {
+    const response = await createPost({
+      url: "https://service.pace-unv.cloud/api/post",
+      method: "POST",
+      payload: { description: newPost },
+      headers: {
+        Authorization: `Bearer ${Cookies.get("user_token")}`,
+      },
+    });
+
+    if (response.success) {
+      setNewPost("");
+      router.reload();
+    }
+  };
+
+  const handleLogout = async () => {
     const response = await mutateLogout({
       url: "https://service.pace-unv.cloud/api/logout",
       method: "GET",
@@ -56,50 +87,84 @@ export default function Layout({ children, metaTitle, metaDescription }) {
         Authorization: `Bearer ${Cookies.get("user_token")}`,
       },
     });
+
     if (response?.success) {
       Cookies.remove("user_token");
       router.reload();
     }
   };
-  const handleNewPost = async () => {
-    const response = await createPost({
-      url: "https://service.pace-unv.cloud/api/post",
-      method: "POST",
-      payload: { description: newPost }, // pass the new post description
-      headers: {
-        Authorization: `Bearer ${Cookies.get("user_token")}`,
-      },
-    });
 
-    if (response.success) {
-      // Reload to reflect new post
-      setNewPost("");
-      router.reload();
-    }
-  };
   const handleLike = async (postId) => {
-    const { mutate: likePost } = useMutation();
-    await likePost({
+    const response = await createPost({
       url: `https://service.pace-unv.cloud/api/likes/post/${postId}`,
       method: "POST",
       headers: {
         Authorization: `Bearer ${Cookies.get("user_token")}`,
       },
     });
-    router.reload(); // Reload the page to reflect the new like
+    if (response.success) {
+      router.reload();
+    }
+  };
+
+  const handleReply = async (postId) => {
+    const response = await createPost({
+      url: `https://service.pace-unv.cloud/api/replies/post/${postId}`,
+      method: "POST",
+      payload: { description: replies[postId] }, // Use the reply for this post
+      headers: {
+        Authorization: `Bearer ${Cookies.get("user_token")}`,
+      },
+    });
+
+    if (response.success) {
+      setReplies({ ...replies, [postId]: "" }); // Clear the reply input for the specific post
+      router.reload();
+    }
+  };
+
+  const openEditModal = (postId, currentDescription) => {
+    setEditDescription(currentDescription); // Set the current post description in the modal
+    setSelectedPostId(postId); // Set the post being edited
+    onOpen(); // Open the modal
+  };
+
+  const handleEditPost = async () => {
+    const response = await createPost({
+      url: `https://service.pace-unv.cloud/api/post/update/${selectedPostId}`,
+      method: "PATCH",
+      payload: { description: editDescription },
+      headers: {
+        Authorization: `Bearer ${Cookies.get("user_token")}`,
+      },
+    });
+
+    if (response.success) {
+      onClose(); // Close the modal after editing
+      router.reload(); // Reload the page to reflect the edit
+    }
+  };
+
+  const handleDeletePost = async (postId) => {
+    const response = await createPost({
+      url: `https://service.pace-unv.cloud/api/post/delete/${postId}`,
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${Cookies.get("user_token")}`,
+      },
+    });
+
+    if (response.success) {
+      router.reload(); // Reload the page to reflect the deletion
+    }
   };
 
   return (
     <>
       <Head>
         <title>{`Sanber Daily - ${metaTitle}`}</title>
-        <meta
-          name="description"
-          content={metaDescription || "Generated by Sanber Daily"}
-        />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="/favicon.ico" />
       </Head>
+
       <Container width="full" centerContent>
         <Flex
           direction="column"
@@ -125,14 +190,16 @@ export default function Layout({ children, metaTitle, metaDescription }) {
                 />
                 <MenuList zIndex="2">
                   <MenuItem>Profile ({profileUser?.name || ""})</MenuItem>
-                  <MenuItem onClick={HandleLogout}>Logout</MenuItem>
+                  <MenuItem onClick={handleLogout}>Logout</MenuItem>
+                  <Link href="/register">
+                    <Button>Register</Button>
+                  </Link>
                 </MenuList>
               </Menu>
             </Flex>
           </Box>
 
           <Box height="95vh" overflow="scroll" padding="2" position="relative">
-            {/* New Post Section */}
             <Box mb={4} p={4} borderWidth={1} borderRadius="lg">
               <Input
                 placeholder="What's happening ..."
@@ -144,10 +211,8 @@ export default function Layout({ children, metaTitle, metaDescription }) {
               </Button>
             </Box>
 
-            {/* Show loading or error state */}
             {isLoading && <Spinner />}
             {isError && <Text>Error loading posts...</Text>}
-            {/* Show posts */}
             {!isLoading && posts && posts.length > 0 ? (
               posts.map((post) => (
                 <Box
@@ -170,19 +235,40 @@ export default function Layout({ children, metaTitle, metaDescription }) {
                         </Text>
                       </Box>
                     </Flex>
+
+                    {post.user.id === profileUser?.id && (
+                      <Flex>
+                        <IconButton
+                          icon={<EditIcon />}
+                          aria-label="edit"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            openEditModal(post.id, post.description)}
+                        />
+                        <IconButton
+                          icon={<DeleteIcon />}
+                          aria-label="delete"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeletePost(post.id)}
+                        />
+                      </Flex>
+                    )}
                   </Flex>
+
                   <Text mb={2}>{post.description}</Text>
 
                   <Flex justifyContent="space-between">
                     <Flex alignItems="center">
                       <IconButton
-                        icon={<ChevronDownIcon />}
+                        icon={<FaHeart />} // Heart icon for like
                         aria-label="like"
                         variant="ghost"
                         size="sm"
-                        mr={2}
+                        onClick={() => handleLike(post.id)}
                       />
-                      <Text>{post.likes} Likes</Text>
+                      <Text>{post.likes || 0} Likes</Text>{" "}
                     </Flex>
                     <Flex alignItems="center">
                       <IconButton
@@ -190,12 +276,20 @@ export default function Layout({ children, metaTitle, metaDescription }) {
                         aria-label="replies"
                         variant="ghost"
                         size="sm"
-                        mr={2}
                       />
                       <Text>{post.replies?.length || 0} Replies</Text>{" "}
-                      {/* Safe fallback */}
                     </Flex>
                   </Flex>
+
+                  <Box mt={2}>
+                    <Input
+                      placeholder="Write a reply..."
+                      value={replies[post.id] || ""}
+                      onChange={(e) =>
+                        setReplies({ ...replies, [post.id]: e.target.value })}
+                    />
+                    <Button onClick={() => handleReply(post.id)}>Reply</Button>
+                  </Box>
                 </Box>
               ))
             ) : (
@@ -204,6 +298,28 @@ export default function Layout({ children, metaTitle, metaDescription }) {
           </Box>
         </Flex>
       </Container>
+
+      <Modal isOpen={isOpen} onClose={onClose}>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Edit Post</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <Input
+              value={editDescription}
+              onChange={(e) => setEditDescription(e.target.value)}
+            />
+          </ModalBody>
+          <ModalFooter>
+            <Button colorScheme="blue" onClick={handleEditPost}>
+              Save Changes
+            </Button>
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </>
   );
 }
